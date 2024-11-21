@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <div class="chat-container">
+            <div class="chat-box" id="chatBox">
+                <div class="welcome-message">
+                    <i class="fas fa-robot"></i>
+                    <p>Hello! How can I help you today?</p>
+                </div>
+            </div>
+            
+            <div class="input-container">
+                <textarea id="userInput" placeholder="Type your message..." rows="1"></textarea>
+                <div class="button-group">
+                    <button onclick="toggleVoiceRecognition()" id="voiceButton" class="icon-button">
+                        <i class="fas fa-microphone"></i>
+                    </button>
+                    <button onclick="sendMessage()" class="send-button">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // Voice recognition setup
+    let recognition = null;
+    let isListening = false;
+
+    // Initialize speech recognition
+    function initRecognition() {
+        if (!recognition && 'webkitSpeechRecognition' in window) {
+            recognition = new webkitSpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+
+            recognition.onresult = function(event) {
+                const transcript = event.results[0][0].transcript;
+                document.getElementById('userInput').value = transcript;
+                sendMessage();
+            };
+
+            recognition.onend = function() {
+                if (isListening) {
+                    // Restart recognition if it was still supposed to be listening
+                    recognition.start();
+                } else {
+                    document.getElementById('voiceButton').style.color = 'black';
+                }
+            };
+
+            recognition.onerror = function(event) {
+                console.log('Recognition error:', event.error);
+                isListening = false;
+                document.getElementById('voiceButton').style.color = 'black';
+            };
+        }
+    }
+
+    // Toggle voice recognition
+    function toggleVoiceRecognition() {
+        if (!recognition) {
+            initRecognition();
+        }
+        
+        if (!isListening) {
+            try {
+                recognition.start();
+                document.getElementById('voiceButton').style.color = 'red';
+                isListening = true;
+            } catch (error) {
+                console.log('Recognition already started');
+            }
+        } else {
+            try {
+                recognition.stop();
+                document.getElementById('voiceButton').style.color = 'black';
+                isListening = false;
+            } catch (error) {
+                console.log('Recognition already stopped');
+            }
+        }
+    }
+
+    // Speech synthesis setup
+    const synth = window.speechSynthesis;
+
+    // Improved speak function with auto-listening
+    function speakResponse(text) {
+        return new Promise((resolve) => {
+            synth.cancel(); // Stop any current speech
+            
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            utterance.volume = 1.0;
+            
+            utterance.onend = () => {
+                // Start listening after response
+                setTimeout(() => {
+                    toggleVoiceRecognition();
+                    resolve();
+                }, 1000);
+            };
+            
+            synth.speak(utterance);
+        });
+    }
+
+    // Updated sendMessage function
+    async function sendMessage() {
+        const userInput = document.getElementById('userInput');
+        const message = userInput.value.trim();
+        
+        if (message === '') return;
+        
+        // Stop listening while processing
+        if (isListening) {
+            toggleVoiceRecognition();
+        }
+        
+        addMessage(message, true);
+        userInput.value = '';
+
+        try {
+            const response = await fetch('/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ message: message })
+            });
+
+            const data = await response.json();
+            if (data.error) {
+                addMessage('Error: ' + data.error, false);
+            } else {
+                addMessage(data.response, false);
+                await speakResponse(data.response);
+            }
+        } catch (error) {
+            addMessage('Error: Could not connect to server', false);
+        }
+    }
+
+    // Add message with animation
+    function addMessage(content, isUser) {
+        const chatBox = document.getElementById('chatBox');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'} fade-in`;
+        messageDiv.textContent = content;
+        chatBox.appendChild(messageDiv);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    // Auto-resize textarea
+    document.addEventListener('DOMContentLoaded', function() {
+        const textarea = document.getElementById('userInput');
+        textarea.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = this.scrollHeight + 'px';
+        });
+        
+        // Initialize recognition
+        initRecognition();
+    });
+
+    // Handle Enter key
+    document.getElementById('userInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+    </script>
+</body>
+</html> 
